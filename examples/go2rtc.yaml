@@ -1,0 +1,37 @@
+# go2rtc streams for live video + two-way audio with a GLNK doorbell.
+# Tested with go2rtc 1.9.14 (the one bundled with Frigate 0.18).
+#
+# glnk_bridge/av.py runs inside the go2rtc (or Frigate) container. It needs:
+#   - the glnk_bridge folder mounted, e.g. ./glnk-bridge/glnk_bridge:/glnk:ro
+#   - GLNK_HOST, GLNK_PASSWORD (and optionally GLNK_PORT, GLNK_USER) in the container environment
+#   - GO2RTC_ALLOW_ARBITRARY_EXEC=true, because `exec` sources are disabled by default.
+#     Anyone who can change the go2rtc config can then run commands in that container:
+#     never expose the go2rtc API (port 1984) or its config editor.
+#   - python3 in the container (present in the Frigate image).
+#
+# In Frigate's config.yml this goes under `go2rtc:`, and `{output}` must be written `{{output}}`
+# (not needed with the default WAV pipe mode below).
+
+preload:
+  doorbell_live: "video"          # optional: keeps the video warm so the card opens faster
+
+streams:
+  # the doorbell's own RTSP stream (this model: rtsp://<doorbell-ip>:554/)
+  doorbell:
+    - rtsp://192.168.1.50:554/
+
+  # what the dashboard card uses
+  doorbell_live:
+    # 1. speaker (backchannel). Must be listed FIRST. A-law 8 kHz is what the doorbell expects.
+    #    killsignal=15: av.py closes the talk session cleanly when the call ends; without it the
+    #    doorbell keeps a stale talk session and ignores the next call's voice.
+    - "exec:python3 /glnk/av.py talk#backchannel=1#audio=alaw/8000#killsignal=15#killtimeout=3"
+    # 2. video
+    - rtsp://127.0.0.1:8554/doorbell
+    # 3. visitor audio, streamed as WAV on stdout (no ffmpeg, starts in ~0.1 s)
+    - "exec:python3 /glnk/av.py listen#killsignal=15#killtimeout=3"
+
+webrtc:
+  candidates:
+    - 192.168.1.10:8555           # LAN IP of the machine running go2rtc (and VPN clients' route)
+    - stun:8555

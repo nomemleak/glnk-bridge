@@ -1,0 +1,49 @@
+# Home Assistant dashboard: live doorbell with a big "call" button, plus an "Open door" button.
+# Needs Advanced Camera Card (Settings > Marketplace in recent Home Assistant, HACS before).
+# Entity ids assume DEVICE_NAME=Doorbell and a camera entity camera.doorbell (Frigate integration);
+# adjust to yours.
+type: vertical-stack
+cards:
+  - type: custom:advanced-camera-card
+    cameras:
+      - camera_entity: camera.doorbell
+        live_provider: go2rtc
+        go2rtc:
+          stream: doorbell_live
+          modes: [webrtc, mse, mp4, mjpeg]
+        capabilities:
+          # the card asks go2rtc whether the stream can send audio, but go2rtc only knows once
+          # the exec source has started: without this the call button is often missing
+          force:
+            - 2-way-audio
+    live:
+      auto_unmute: [call]
+      microphone:
+        auto_unmute: [call]
+      controls:
+        builtin: false
+        call:
+          enabled: true
+          button_size: 56
+        thumbnails:
+          mode: none
+    menu:
+      style: outside
+      position: bottom
+    status_bar:
+      style: none
+
+  - type: button
+    name: Open the door
+    icon: mdi:door-open
+    tap_action:
+      action: perform-action
+      perform_action: button.press
+      target:
+        entity_id: button.doorbell_open_door
+      confirmation:
+        text: Open the door?
+
+  - type: picture-entity
+    entity: image.doorbell_visitor
+    name: Last visitor

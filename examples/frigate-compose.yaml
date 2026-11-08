@@ -1,0 +1,12 @@
+# Extra lines for Frigate's docker-compose.yml (merge with your own service definition).
+services:
+  frigate:
+    volumes:
+      - ../glnk-bridge/glnk_bridge:/glnk:ro      # path to this repository's glnk_bridge folder
+    environment:
+      GLNK_HOST: 192.168.1.50
+      GLNK_PASSWORD: ${GLNK_PASSWORD}            # from an .env file next to this compose file
+      GO2RTC_ALLOW_ARBITRARY_EXEC: "true"        # see the warning in examples/go2rtc.yaml
+    ports:
+      - "8555:8555/tcp"                          # WebRTC
+      - "8555:8555/udp"

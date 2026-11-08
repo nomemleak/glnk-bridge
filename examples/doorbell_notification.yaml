@@ -1,0 +1,49 @@
+# Home Assistant automation: notify phones with the visitor's picture when someone rings,
+# with an "Open the door" action (iOS asks for Face ID / passcode before running it).
+#
+# Settings > Automations > Create > (three dots) Edit in YAML.
+# Replace notify.mobile_app_phone_1 / _2 with your phones (Developer tools > Actions,
+# search "notify.mobile_app_"). Entity ids assume DEVICE_NAME=Doorbell.
+alias: Doorbell - notification
+mode: single
+max_exceeded: silent
+triggers:
+  - trigger: state
+    entity_id: event.doorbell_ring
+    not_from: unavailable
+actions:
+  - variables:
+      action_open: "OPEN_DOOR_{{ context.id }}"
+  - repeat:
+      for_each:
+        - notify.mobile_app_phone_1
+        - notify.mobile_app_phone_2
+      sequence:
+        - action: "{{ repeat.item }}"
+          data:
+            title: "🔔 Someone is at the door"
+            message: "{{ now().strftime('%H:%M') }}"
+            data:
+              image: /api/image_proxy/image.doorbell_visitor
+              url: /lovelace/0                # dashboard to open when the notification is tapped
+              clickAction: /lovelace/0        # same, Android
+              ttl: 0
+              priority: high
+              channel: Doorbell
+              push:
+                interruption-level: time-sensitive
+              actions:
+                - action: "{{ action_open }}"
+                  title: "Open the door"
+                  destructive: true
+                  authenticationRequired: true
+  - wait_for_trigger:
+      - trigger: event
+        event_type: mobile_app_notification_action
+        event_data:
+          action: "{{ action_open }}"
+    timeout: "00:03:00"
+    continue_on_timeout: false
+  - action: button.press
+    target:
+      entity_id: button.doorbell_open_door

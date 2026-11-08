@@ -1,0 +1,15 @@
+.env
+data/
+__pycache__/
+*.pyc
+*.pcap
+*.pcapng
+*.apk
+*.bin
+glnk_capture/
+*.h264
+*.alaw
+*.wav
+*.jpg
+*.tar.gz
+.venv/

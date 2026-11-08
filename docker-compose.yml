@@ -1,0 +1,14 @@
+services:
+  glnk-bridge:
+    build: .
+    image: glnk-bridge:local
+    container_name: glnk-bridge
+    network_mode: host          # FTP passive ports + UDP to the doorbell, no port mapping headaches
+    user: "1000:1000"           # owner of ./data
+    env_file: .env
+    volumes:
+      - ./data:/data
+    restart: unless-stopped
+    mem_limit: 128m
+    labels:
+      - com.centurylinklabs.watchtower.enable=false
