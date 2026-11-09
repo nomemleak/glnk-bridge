@@ -1,0 +1,74 @@
+# Home Assistant dashboard: pictures of the last visitors (HISTORY_SIZE, default 4), newest first,
+# each with the time of the ring. Entity ids assume DEVICE_NAME=Doorbell.
+type: grid
+columns: 2
+square: false
+cards:
+  - type: picture-elements
+    image_entity: image.doorbell_visitor_1
+    visibility:                       # hidden until there have been 1 visitor(s)
+      - condition: state
+        entity: sensor.doorbell_visitor_1_time
+        state_not: unknown
+    elements:
+      - type: state-label
+        entity: sensor.doorbell_visitor_1_time
+        style:
+          left: 0
+          bottom: 0
+          transform: none
+          padding: 4px 8px
+          background: rgba(0, 0, 0, 0.55)
+          color: white
+          font-size: 13px
+  - type: picture-elements
+    image_entity: image.doorbell_visitor_2
+    visibility:                       # hidden until there have been 2 visitor(s)
+      - condition: state
+        entity: sensor.doorbell_visitor_2_time
+        state_not: unknown
+    elements:
+      - type: state-label
+        entity: sensor.doorbell_visitor_2_time
+        style:
+          left: 0
+          bottom: 0
+          transform: none
+          padding: 4px 8px
+          background: rgba(0, 0, 0, 0.55)
+          color: white
+          font-size: 13px
+  - type: picture-elements
+    image_entity: image.doorbell_visitor_3
+    visibility:                       # hidden until there have been 3 visitor(s)
+      - condition: state
+        entity: sensor.doorbell_visitor_3_time
+        state_not: unknown
+    elements:
+      - type: state-label
+        entity: sensor.doorbell_visitor_3_time
+        style:
+          left: 0
+          bottom: 0
+          transform: none
+          padding: 4px 8px
+          background: rgba(0, 0, 0, 0.55)
+          color: white
+          font-size: 13px
+  - type: picture-elements
+    image_entity: image.doorbell_visitor_4
+    visibility:                       # hidden until there have been 4 visitor(s)
+      - condition: state
+        entity: sensor.doorbell_visitor_4_time
+        state_not: unknown
+    elements:
+      - type: state-label
+        entity: sensor.doorbell_visitor_4_time
+        style:
+          left: 0
+          bottom: 0
+          transform: none
+          padding: 4px 8px
+          background: rgba(0, 0, 0, 0.55)
+          color: white
+          font-size: 13px

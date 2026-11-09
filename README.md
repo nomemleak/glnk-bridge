@@ -47,6 +47,8 @@ With `DEVICE_NAME=Doorbell`:
 | `binary_sensor.doorbell_ringing` | binary sensor | on for `RING_HOLD` seconds |
 | `sensor.doorbell_last_ring` | timestamp | |
 | `image.doorbell_visitor` | image | latest snapshot |
+| `image.doorbell_visitor_1` … `_4` | image | last visitors, newest first (one picture per ring) |
+| `sensor.doorbell_visitor_1_time` … `_4_time` | timestamp | time of each of those rings |
 | `button.doorbell_open_door` | button | unlocks the door |
 | `sensor.doorbell_last_unlock` | sensor | result of the last unlock |
 | `button.doorbell_play_chime` | button | plays a short chime on the doorbell |
@@ -111,6 +113,8 @@ doorbell_live:
 - Dashboard card with live view, call button and "Open the door":
   [examples/doorbell_card.yaml](examples/doorbell_card.yaml) (needs
   [Advanced Camera Card](https://github.com/dermotduffy/advanced-camera-card)).
+- Pictures of the last visitors with the time of each ring:
+  [examples/visitor_history_card.yaml](examples/visitor_history_card.yaml).
 - Notification with the visitor's picture and an "Open the door" action protected by Face ID /
   passcode: [examples/doorbell_notification.yaml](examples/doorbell_notification.yaml).
 
@@ -134,6 +138,7 @@ doorbell_live:
 | `DEVICE_ID` / `DEVICE_NAME` | `doorbell` / `Doorbell` | entity ids are derived from the name |
 | `RING_GAP` | `20` | uploads closer than this (seconds) count as the same ring |
 | `RING_HOLD` | `15` | seconds the `ringing` sensor stays on |
+| `HISTORY_SIZE` | `4` | number of last visitors kept (in `DATA_DIR/history`, kept across restarts, not affected by `KEEP_DAYS`); `0` disables it |
 | `LOG_LEVEL` | `INFO` | |
 | `TZ` | | e.g. `Europe/Paris`, for log timestamps |
 

@@ -63,6 +63,7 @@ class Config:
         self.device_name = env("DEVICE_NAME", "Doorbell")
         self.ring_gap = float(env("RING_GAP", "20"))       # uploads closer than this = same ring
         self.ring_hold = float(env("RING_HOLD", "15"))     # binary sensor stays on this long
+        self.history_size = max(0, int(env("HISTORY_SIZE", "4")))   # pictures of the last visitors
 
 
 class Bridge:
@@ -74,7 +75,14 @@ class Bridge:
         self.device_lock = threading.Lock()          # one GLNK session at a time
         self.ftp_dir = os.path.join(cfg.data_dir, "ftp")
         self.last_jpg = os.path.join(cfg.data_dir, "last.jpg")
+        self.hist_dir = os.path.join(cfg.data_dir, "history")
+        self.hist_file = os.path.join(self.hist_dir, "history.json")
+        self.hist_lock = threading.Lock()
         os.makedirs(self.ftp_dir, exist_ok=True)
+        os.makedirs(self.hist_dir, exist_ok=True)
+        self.history = self._load_history()          # newest first: [{"time": iso, "file": name}]
+        if not self.history and not os.path.exists(self.hist_file):
+            self._import_history()
 
         self.mqtt = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id="glnk-bridge-" + cfg.device_id)
         if cfg.mqtt_user:
@@ -110,6 +118,14 @@ class Bridge:
             ("button", "test_ring", {"name": "Simulate ring", "command_topic": b + "/test_ring/set",
                                      "icon": "mdi:doorbell-video", "entity_category": "diagnostic"}),
         ]
+        for i in range(1, self.cfg.history_size + 1):
+            entities += [
+                ("image", "visitor_%d" % i, {"name": "Visitor %d" % i, "image_topic": "%s/history/%d/image" % (b, i),
+                                             "content_type": "image/jpeg", "icon": "mdi:account-clock"}),
+                ("sensor", "visitor_%d_time" % i, {"name": "Visitor %d time" % i,
+                                                   "state_topic": "%s/history/%d/time" % (b, i),
+                                                   "device_class": "timestamp", "icon": "mdi:clock-outline"}),
+            ]
         for platform, key, conf in entities:
             payload = dict(common, unique_id=uid + key, **conf)
             self.mqtt.publish("%s/%s/glnk_%s/%s/config" % (d, platform, self.cfg.device_id, key),
@@ -125,6 +141,7 @@ class Bridge:
         self._discover()
         client.publish(self.base + "/status", "online", retain=True)
         client.publish(self.base + "/ringing", "OFF", retain=True)
+        self._publish_history()
         client.subscribe([(self.base + "/unlock/set", 1), (self.base + "/chime/set", 1),
                           (self.base + "/test_ring/set", 1)])
 
@@ -148,12 +165,14 @@ class Bridge:
                 self.mqtt.publish(self.base + "/snapshot", f.read(), retain=True)
         except OSError as e:
             log.error("snapshot copy failed: %s", e)
-        self._ring(source=os.path.basename(path))
+        self._ring(source=os.path.basename(path), picture=path)
 
-    def _ring(self, source):
+    def _ring(self, source, picture=None):
         now = time.monotonic()
         new = now - self.last_ring > self.cfg.ring_gap
         self.last_ring = now
+        if picture:
+            self._add_to_history(picture, new)
         if new:
             log.info("RING (%s)", source)
             self.mqtt.publish(self.base + "/ringing", "ON", retain=True)
@@ -165,6 +184,96 @@ class Bridge:
         self.ring_off_timer = threading.Timer(self.cfg.ring_hold, self._ring_off)
         self.ring_off_timer.daemon = True
         self.ring_off_timer.start()
+
+    # ------------------------------------------------------------------ visitor history
+    def _load_history(self):
+        try:
+            with open(self.hist_file) as f:
+                items = json.load(f)
+            return [h for h in items if os.path.exists(os.path.join(self.hist_dir, h["file"]))]
+        except (OSError, ValueError, KeyError, TypeError):
+            return []
+
+    def _import_history(self):
+        """First start with history enabled: rebuild the last visitors from the FTP pictures still on
+        disk (same grouping as live rings: pictures closer than RING_GAP are one ring)."""
+        if not self.cfg.history_size:
+            return
+        pics = []
+        for root, _, files in os.walk(self.ftp_dir):
+            for name in files:
+                if name.lower().endswith((".jpg", ".jpeg")):
+                    p = os.path.join(root, name)
+                    try:
+                        pics.append((os.path.getmtime(p), p))
+                    except OSError:
+                        pass
+        pics.sort()
+        rings = []                                   # [(time of first picture, last picture)]
+        for t, p in pics:
+            if rings and t - rings[-1][2] <= self.cfg.ring_gap:
+                rings[-1] = (rings[-1][0], p, t)
+            else:
+                rings.append((t, p, t))
+        for t, p, _ in reversed(rings[-self.cfg.history_size:]):
+            stamp = datetime.fromtimestamp(t, timezone.utc)
+            entry = {"time": stamp.isoformat(timespec="seconds"),
+                     "file": stamp.strftime("ring_%Y%m%d_%H%M%S.jpg")}
+            try:
+                shutil.copyfile(p, os.path.join(self.hist_dir, entry["file"]))
+                self.history.append(entry)
+            except OSError as e:
+                log.error("history import failed for %s: %s", p, e)
+        try:
+            with open(self.hist_file + ".tmp", "w") as f:
+                json.dump(self.history, f)
+            os.replace(self.hist_file + ".tmp", self.hist_file)
+        except OSError as e:
+            log.error("history save failed: %s", e)
+        if self.history:
+            log.info("visitor history rebuilt from %d FTP picture(s): %d ring(s)", len(pics), len(self.history))
+
+    def _add_to_history(self, picture, new_ring):
+        """A new ring opens a history entry; later pictures of the same burst replace its picture,
+        so each entry shows the last picture of its ring (like the Visitor image)."""
+        if not self.cfg.history_size:
+            return
+        with self.hist_lock:
+            if new_ring or not self.history:
+                stamp = datetime.now(timezone.utc)
+                entry = {"time": stamp.isoformat(timespec="seconds"),
+                         "file": stamp.strftime("ring_%Y%m%d_%H%M%S.jpg")}
+                self.history.insert(0, entry)
+                for old in self.history[self.cfg.history_size:]:
+                    try:
+                        os.remove(os.path.join(self.hist_dir, old["file"]))
+                    except OSError:
+                        pass
+                del self.history[self.cfg.history_size:]
+            dest = os.path.join(self.hist_dir, self.history[0]["file"])
+            try:
+                shutil.copyfile(picture, dest + ".tmp")
+                os.replace(dest + ".tmp", dest)
+                with open(self.hist_file + ".tmp", "w") as f:
+                    json.dump(self.history, f)
+                os.replace(self.hist_file + ".tmp", self.hist_file)
+            except OSError as e:
+                log.error("history update failed: %s", e)
+            self._publish_history(only_first=not new_ring)
+
+    def _publish_history(self, only_first=False):
+        slots = 1 if only_first else self.cfg.history_size
+        for i in range(slots):
+            topic = "%s/history/%d/" % (self.base, i + 1)
+            if i < len(self.history):
+                try:
+                    with open(os.path.join(self.hist_dir, self.history[i]["file"]), "rb") as f:
+                        self.mqtt.publish(topic + "image", f.read(), retain=True)
+                except OSError as e:
+                    log.error("history picture missing: %s", e)
+                self.mqtt.publish(topic + "time", self.history[i]["time"], retain=True)
+            else:
+                self.mqtt.publish(topic + "time", "None", retain=True)     # "None" = unknown in HA
 
     def _ring_off(self):
         self.mqtt.publish(self.base + "/ringing", "OFF", retain=True)
@@ -246,7 +355,15 @@ class Bridge:
                     log.warning("FTP connection refused from %s", self.remote_ip)
                     self.close()
 
+            def on_login_failed(self, username, password):
+                # usually a FTP_USER / FTP_PASSWORD mismatch with the doorbell web UI
+                log.warning("FTP login failed for user %r from %s", username, self.remote_ip)
+
+            def on_incomplete_file_received(self, file):
+                log.warning("FTP upload interrupted: %s", os.path.basename(file))
+
             def on_file_received(self, file):
+                log.debug("FTP upload: %s", file)
                 bridge.on_snapshot(file)
 
         auth = DummyAuthorizer()
